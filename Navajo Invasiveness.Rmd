@@ -1,0 +1,104 @@
+---
+title: "Navajo Invasiveness"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# jagsExists = url.exists("http://sourceforge.net/projects/mcmc-jags/files/latest/download")
+# # Regular HTTP
+# if(jagsExists) {
+#   txt = getURL("http://sourceforge.net/projects/mcmc-jags/files/latest/download")}
+
+#### Use jags package ####
+#install.packages("rjags")
+library(rjags)
+
+library (RCurl)
+library(boot)
+library(reshape2)
+library(RColorBrewer)
+
+```
+
+Set up data 
+```{r}
+#### Enter study specific data on number of children included in the sample and number of positive samples ####
+
+#### Data (select as appropriate)#### 
+carripddat <-  read.csv("./Data/master.input.data.blurred.csv")
+
+carripddat<-carripddat[carripddat$agegrp==1,]  #RESTRICT TO KIDS!
+
+names(carripddat )
+
+# 1.a. <5y olds vs. adults #
+st.per.label<-paste(carripddat$st, carripddat$period) 
+st.per.label<-paste(carripddat$st, carripddat$period) 
+
+
+#Create vector that contain number of carriers, number of swabs in each time period, number of IPD cases, and the offset (e.g. popsize)
+ncarr <-carripddat [,'N_carr_blurred']
+nswab<-carripddat [,'N_swabs']
+
+nipd<-carripddat [,'IPD_blurred']
+offset<-carripddat [,'pop_offset_IPD']
+
+st.lab<-carripddat [,'st']
+st.index<-as.numeric(as.factor(st.lab))
+unique.st.lab<- unique(cbind.data.frame(st.index,st.lab)) #for labeling the output
+unique.st.lab<-unique.st.lab[order(unique.st.lab$st.index),]
+```
+
+Read in JAGS model
+```{r}
+source('./R/invasiveness estimates from SINGLE STAGE MODEL shrinkage v2 notes.R')
+```
+
+
+#Call model
+```{r}
+####  Code to run JAGS###
+jdat <- list(N_st_pers=length(ncarr), ncarr=ncarr, nipd=nipd,offset=offset, nswab=nswab, st.index=st.index, N_sts=nrow(unique.st.lab))
+
+#inits <- list(b0=0,b1=1)
+jmod <- jags.model(textConnection(jcode), data=jdat, n.chains=2, n.adapt=1000)
+
+update(jmod,5000)
+
+jpos <- coda.samples(jmod, c("log.true.inv.st","log.ave.inv",'logit.true.prev'), n.iter=20000, thin=5) 
+```
+
+Plot posteriors
+```{r}
+#plot(jpos, ask=TRUE)
+#save(jpos,jpos,file="./mcmcposterior_single_stage")
+```
+
+
+#### Retrieve results ####
+```{r}
+summary.mcmc <- summary(jpos)
+
+summary.stats<-as.data.frame(summary.mcmc[1])
+
+mean.mcmc=summary.stats$statistics.Mean[grep("log.true.inv.st", row.names(summary.stats))]
+
+prec.mcmc=1/(summary.stats$statistics.SD[grep("log.true.inv.st", row.names(summary.stats))]**2)
+
+summary.table.posteriors<-cbind.data.frame(unique.st.lab,mean.mcmc,prec.mcmc)
+
+col_headings <- c('st.index','st','log.inv.age1','log.inv.prec.age1')
+
+names(summary.table.posteriors)<-col_headings
+
+write.csv(summary.table.posteriors,file="./Results/mcmc_invasive_single_stage.csv")
+```
+
+	
+
+
+
